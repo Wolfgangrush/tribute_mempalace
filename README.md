@@ -1,11 +1,11 @@
-# 📦 MemPalace.app
+# 📦 Tribute MemPalace — a desktop app for [MemPalace](https://www.mempalace.net)
 
-> Native macOS desktop app for your **MemPalace** — a multi-panel canvas, streaming Claude chat, built-in terminal, and bidirectional email channel, all wired to your local memory store.
+> Native macOS desktop tribute to **[MemPalace](https://www.mempalace.net)** — a multi-panel canvas, streaming Claude chat, built-in terminal, and bidirectional email channel, all wired to your local memory store.
 
 <div align="center">
 
-**Built on top of [MemPalace](https://www.mempalace.net) — the highest-scoring free AI memory system.**
-*Memory store by [Milla Jovovich & Ben Sigman](https://www.mempalace.net). This app simply gives it a desktop face.*
+**This is a TRIBUTE app. The work being honored is [MemPalace](https://www.mempalace.net) by [Milla Jovovich & Ben Sigman](https://www.mempalace.net).**
+*MemPalace is the highest-scoring free AI memory system. This app simply gives it a desktop face.*
 
 ---
 
@@ -78,7 +78,7 @@ Open from Spotlight (`Cmd+Space` → "MemPalace") or double-click in Finder. Fir
 
 ```bash
 # 1. Clone the repo
-git clone https://github.com/<YOUR-FORK>/mempalace-app.git
+git clone https://github.com/Wolfgangrush/tribute_mempalace.git
 cd mempalace-app
 
 # 2. Install dependencies (Node 18+ required)
@@ -462,8 +462,8 @@ Realistic effort: 2-4 days. On the roadmap.
 PRs welcome. The code is intentionally small (~1500 LOC) and unopinionated — built for forking.
 
 ```bash
-git clone https://github.com/<your-fork>/mempalace-app.git
-cd mempalace-app
+git clone https://github.com/Wolfgangrush/tribute_mempalace.git
+cd tribute_mempalace
 npm install
 npm run dev
 ```
