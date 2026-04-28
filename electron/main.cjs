@@ -314,6 +314,34 @@ ipcMain.handle('config:open-folder', async (_event, p) => {
   if (p && fs.existsSync(p)) shell.openPath(p);
 });
 
+ipcMain.handle('config:reset-all', async () => {
+  // Wipe all app state: config, credentials, audit log, phase2 flag.
+  // Does NOT touch the user's palace folder (their data).
+  const userData = app.getPath('userData');
+  const filesToRemove = [
+    'config.json', 'api-keys.bin', 'email-creds.bin',
+    'email-phase2-enabled.flag', 'phase2-audit.log',
+  ];
+  const removed = [];
+  for (const f of filesToRemove) {
+    const full = path.join(userData, f);
+    try {
+      if (fs.existsSync(full)) {
+        fs.unlinkSync(full);
+        removed.push(f);
+      }
+    } catch (err) {
+      console.error(`[reset] failed to remove ${f}:`, err);
+    }
+  }
+  stopPolling();
+  return { ok: true, removed, userData };
+});
+
+ipcMain.handle('app:reload', async () => {
+  if (mainWindow) mainWindow.reload();
+});
+
 /* ================== Claude CLI detection ================== */
 
 async function isClaudeLoggedIn() {

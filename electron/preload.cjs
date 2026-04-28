@@ -47,6 +47,8 @@ contextBridge.exposeInMainWorld('mempalace', {
     installMemPalace: (palacePath) => ipcRenderer.invoke('config:install-mempalace', palacePath),
     abortInstall: () => ipcRenderer.invoke('config:abort-install'),
     openFolder: (p) => ipcRenderer.invoke('config:open-folder', p),
+    resetAll: () => ipcRenderer.invoke('config:reset-all'),
+    reload: () => ipcRenderer.invoke('app:reload'),
     onSetupProgress: (cb) => {
       setupProgressHandlers.add(cb);
       return () => setupProgressHandlers.delete(cb);

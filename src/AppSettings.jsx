@@ -45,6 +45,33 @@ export default function AppSettings({ onClose, onOpenTerminal, onSendToTerminal 
     setClaudeCli(s);
   }
 
+  async function resetAll() {
+    const confirmed = window.confirm(
+      '⚠️ Reset MemPalace.app to defaults?\n\n' +
+      'This will WIPE:\n' +
+      '  • Palace path config\n' +
+      '  • Email credentials\n' +
+      '  • All saved API keys\n' +
+      '  • Phase 2 inbound poller state\n' +
+      '  • Phase 2 audit log\n' +
+      '  • All open canvas panels (clears localStorage)\n\n' +
+      'Will NOT touch your palace folder data.\n\n' +
+      'After reset, the welcome wizard will appear again.'
+    );
+    if (!confirmed) return;
+
+    try { localStorage.removeItem('mempalace.panels.v1'); } catch {}
+    try { localStorage.removeItem('mempalace.activePanel.v1'); } catch {}
+
+    const result = await window.mempalace.config.resetAll();
+    if (result.ok) {
+      alert(`✅ Reset complete. Removed ${result.removed.length} files. Reloading…`);
+      await window.mempalace.config.reload();
+    } else {
+      alert('❌ Reset failed: ' + (result.error || 'unknown'));
+    }
+  }
+
   async function changePalace() {
     const p = await window.mempalace.config.chooseFolder();
     if (!p) return;
@@ -193,6 +220,16 @@ brew install claude
               {savedAt && <span className="settings-saved">✓ saved</span>}
               <button className="modal-btn-primary" onClick={saveKeys}>💾 Save keys</button>
             </div>
+          </div>
+
+          <div className="modal-section">
+            <div className="modal-section-header">⚠️ Danger zone</div>
+            <p className="modal-hint">
+              Reset all app state and re-run the welcome wizard. Your palace folder data is NOT touched.
+            </p>
+            <button className="modal-btn-danger" onClick={resetAll}>
+              🗑 Reset MemPalace.app to defaults
+            </button>
           </div>
         </div>
       </div>
