@@ -126,7 +126,26 @@ function savePanelsToStorage(panels) {
     }));
     localStorage.setItem(PANELS_STORAGE_KEY, JSON.stringify(serializable));
   } catch (err) {
-    console.error('[savePanels] storage error:', err);
+    // localStorage quota exceeded — drop oldest unpinned panel and retry
+    if (err.name === 'QuotaExceededError' && panels.length > 1) {
+      const trimmed = [...panels].sort((a, b) => {
+        if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;  // pinned first
+        return new Date(b.updatedAt) - new Date(a.updatedAt);  // most recent first
+      }).slice(0, Math.floor(panels.length * 0.7));
+      try {
+        const serializable = trimmed.map((p) => ({
+          ...p,
+          createdAt: p.createdAt instanceof Date ? p.createdAt.toISOString() : p.createdAt,
+          updatedAt: p.updatedAt instanceof Date ? p.updatedAt.toISOString() : p.updatedAt,
+        }));
+        localStorage.setItem(PANELS_STORAGE_KEY, JSON.stringify(serializable));
+        console.warn('[savePanels] quota exceeded, dropped oldest unpinned panels');
+      } catch {
+        console.error('[savePanels] still over quota after trim');
+      }
+    } else {
+      console.error('[savePanels] storage error:', err);
+    }
   }
 }
 
@@ -461,7 +480,9 @@ export default function App() {
 
   function refreshPanel(panel) {
     if (!panel || streaming) return;
-    sendRaw(`Refresh the "${panel.title}" canvas panel. Regenerate it using the EXACT SAME H1 heading as before so it updates in place. Pull the latest data from palace as needed.`);
+    // Sanitize panel title for prompt — strip quote chars that would break interpolation
+    const safeTitle = String(panel.title || '').replace(/["`\n]/g, ' ').slice(0, 100);
+    sendRaw(`Refresh the canvas panel titled: ${safeTitle}\n\nRegenerate it using the EXACT SAME H1 heading as before so it updates in place. Pull the latest data from palace as needed.`);
   }
 
   function cancel() {
@@ -493,14 +514,30 @@ export default function App() {
   function onDragLeave(e) {
     if (e.currentTarget === e.target) setDragOver(false);
   }
+  const MAX_DROP_BYTES = 50 * 1024 * 1024;  // 50 MB cap (matches main.cjs)
+
   async function onDrop(e) {
     e.preventDefault();
     setDragOver(false);
     const files = Array.from(e.dataTransfer.files || []);
     for (const file of files) {
       try {
+        if (file.size > MAX_DROP_BYTES) {
+          setItems((prev) => [
+            ...prev,
+            { role: 'error', text: `${file.name} is too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Max is 50 MB.` },
+          ]);
+          continue;
+        }
         const arrayBuf = await file.arrayBuffer();
-        const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuf)));
+        // Use chunked base64 to avoid call-stack overflow on large files
+        const u8 = new Uint8Array(arrayBuf);
+        let binary = '';
+        const CHUNK = 0x8000;
+        for (let i = 0; i < u8.length; i += CHUNK) {
+          binary += String.fromCharCode.apply(null, u8.subarray(i, i + CHUNK));
+        }
+        const base64 = btoa(binary);
         const result = await window.mempalace.saveDroppedFile(file.name, base64);
         if (result.ok) {
           setItems((prev) => [
@@ -570,8 +607,8 @@ export default function App() {
         return;
       }
 
-      // Cmd+W — close active panel
-      if (e.key === 'w' || e.key === 'W') {
+      // Cmd+Shift+W — close active panel (avoids conflict with macOS "close window")
+      if ((e.key === 'w' || e.key === 'W') && e.shiftKey) {
         if (activePanel && !activePanel.pinned) {
           e.preventDefault();
           closePanel(activePanel.id);

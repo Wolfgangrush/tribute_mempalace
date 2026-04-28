@@ -71,6 +71,13 @@ export default function SetupWizard({ onDone }) {
     }
   }
 
+  async function abortInstall() {
+    await window.mempalace.config.abortInstall();
+    setInstalling(false);
+    setError('Install cancelled');
+    setStep('create-new');
+  }
+
   async function skipPalace() {
     await window.mempalace.config.set({ palacePath: null, setupComplete: true });
     onDone();
@@ -165,10 +172,13 @@ export default function SetupWizard({ onDone }) {
 
           {step === 'installing' && (
             <>
-              <p>Installing MemPalace…</p>
+              <p>Installing MemPalace… <span className="modal-hint" style={{ fontSize: 11 }}>(pip install can take 1-3 min)</span></p>
               <pre className="wizard-progress">
                 {progress.length === 0 ? '(starting…)' : progress.join('')}
               </pre>
+              <div className="modal-actions" style={{ marginTop: 12 }}>
+                <button className="modal-btn-danger" onClick={abortInstall}>⏹ Cancel install</button>
+              </div>
             </>
           )}
 
