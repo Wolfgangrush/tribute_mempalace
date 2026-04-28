@@ -82,6 +82,15 @@ export default function TerminalDrawer({ visible }) {
       window.mempalace.terminal.write(termId, data);
     });
 
+    // Listen for external write requests (e.g. Settings → "Login with Claude")
+    function onExternalWrite(e) {
+      const text = e.detail;
+      if (text && termIdRef.current) {
+        window.mempalace.terminal.write(termIdRef.current, text);
+      }
+    }
+    window.addEventListener('mempalace:terminal:write', onExternalWrite);
+
     const onResize = () => {
       try {
         fit.fit();
@@ -96,6 +105,7 @@ export default function TerminalDrawer({ visible }) {
 
     return () => {
       ro.disconnect();
+      window.removeEventListener('mempalace:terminal:write', onExternalWrite);
       try { window.mempalace.terminal.kill(termId); } catch {}
       try { term.dispose(); } catch {}
       termRef.current = null;

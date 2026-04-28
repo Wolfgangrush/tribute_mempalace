@@ -58,6 +58,11 @@ contextBridge.exposeInMainWorld('mempalace', {
     set: (keys) => ipcRenderer.invoke('apikeys:set', keys),
   },
 
+  // Claude CLI status (for subscription login flow)
+  claudeCli: {
+    status: () => ipcRenderer.invoke('claude:cli-status'),
+  },
+
   // M1 — sync CLI shell-out
   sendMessage: (message) => ipcRenderer.invoke('claude:send', message),
 

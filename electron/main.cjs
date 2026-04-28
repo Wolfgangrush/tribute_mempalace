@@ -217,6 +217,33 @@ ipcMain.handle('config:open-folder', async (_event, p) => {
   if (p && fs.existsSync(p)) shell.openPath(p);
 });
 
+/* ================== Claude CLI detection + subscription login ================== */
+
+ipcMain.handle('claude:cli-status', async () => {
+  // Returns: { installed: bool, path: string|null, loggedIn: bool|'unknown' }
+  const claudeBin = await new Promise((resolve) => {
+    const proc = spawn('which', ['claude'], { stdio: ['ignore', 'pipe', 'ignore'] });
+    let out = '';
+    proc.stdout.on('data', (d) => { out += d.toString(); });
+    proc.on('error', () => resolve(null));
+    proc.on('close', (code) => resolve(code === 0 ? out.trim() : null));
+  });
+
+  if (!claudeBin || !fs.existsSync(claudeBin)) {
+    return { installed: false, path: null, loggedIn: false };
+  }
+
+  // Check for Claude credentials file (typical paths)
+  const credsPaths = [
+    path.join(os.homedir(), '.claude/credentials.json'),
+    path.join(os.homedir(), '.config/claude/credentials.json'),
+    path.join(os.homedir(), 'Library/Application Support/Claude/credentials.json'),
+  ];
+  const loggedIn = credsPaths.some((p) => fs.existsSync(p));
+
+  return { installed: true, path: claudeBin, loggedIn };
+});
+
 /* ================== API keys ================== */
 
 ipcMain.handle('apikeys:get', async () => {

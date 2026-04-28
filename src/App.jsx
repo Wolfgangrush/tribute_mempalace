@@ -775,7 +775,14 @@ export default function App() {
         />
       )}
       {appSettingsOpen && (
-        <AppSettings onClose={() => setAppSettingsOpen(false)} />
+        <AppSettings
+          onClose={() => setAppSettingsOpen(false)}
+          onOpenTerminal={() => setTerminalOpen(true)}
+          onSendToTerminal={(text) => {
+            // Forward to TerminalDrawer via a window event
+            window.dispatchEvent(new CustomEvent('mempalace:terminal:write', { detail: text }));
+          }}
+        />
       )}
       {showWizard && configLoaded && (
         <SetupWizard onDone={() => setShowWizard(false)} />
