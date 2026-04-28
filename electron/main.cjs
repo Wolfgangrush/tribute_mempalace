@@ -121,32 +121,90 @@ ipcMain.handle('config:validate-palace', async (_event, palacePath) => {
   return { ok: true, hasClaude, hasMcpConfig: fs.existsSync(path.join(claudeDir, 'settings.json')) };
 });
 
-ipcMain.handle('config:install-mempalace', async (_event, palacePath) => {
-  // Run: pip install mempalace && mempalace init <palacePath>
+function findPythonUserBin() {
   return new Promise((resolve) => {
-    if (!palacePath) {
-      return resolve({ ok: false, error: 'No path' });
-    }
+    const proc = spawn('python3', ['-c', 'import site,os,sys; print(os.path.join(site.getuserbase(), "bin"))'], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let out = '';
+    proc.stdout.on('data', (d) => { out += d.toString(); });
+    proc.on('error', () => resolve(null));
+    proc.on('close', (code) => resolve(code === 0 ? out.trim() : null));
+  });
+}
+
+async function findMempalaceBinary() {
+  // Try `which` first (in case pip global install or homebrew)
+  const whichResult = await new Promise((resolve) => {
+    const proc = spawn('which', ['mempalace'], { stdio: ['ignore', 'pipe', 'ignore'] });
+    let out = '';
+    proc.stdout.on('data', (d) => { out += d.toString(); });
+    proc.on('error', () => resolve(null));
+    proc.on('close', (code) => resolve(code === 0 ? out.trim() : null));
+  });
+  if (whichResult && fs.existsSync(whichResult)) return whichResult;
+
+  // Try Python user-base/bin (where pip3 install --user puts it)
+  const userBin = await findPythonUserBin();
+  if (userBin) {
+    const candidate = path.join(userBin, 'mempalace');
+    if (fs.existsSync(candidate)) return candidate;
+  }
+
+  // Try common pyenv / homebrew paths
+  const fallbacks = [
+    path.join(os.homedir(), '.local/bin/mempalace'),
+    '/opt/homebrew/bin/mempalace',
+    '/usr/local/bin/mempalace',
+  ];
+  for (const f of fallbacks) {
+    if (fs.existsSync(f)) return f;
+  }
+  return null;
+}
+
+ipcMain.handle('config:install-mempalace', async (_event, palacePath) => {
+  return new Promise(async (resolve) => {
+    if (!palacePath) return resolve({ ok: false, error: 'No path' });
     fs.mkdirSync(palacePath, { recursive: true });
 
     const log = [];
+    const sendProgress = (line) => {
+      log.push(line);
+      mainWindow?.webContents.send('setup:progress', line);
+    };
+
+    sendProgress(`▸ pip3 install --user mempalace\n`);
     const pip = spawn('pip3', ['install', '--user', 'mempalace'], { stdio: ['ignore', 'pipe', 'pipe'] });
-    pip.stdout.on('data', (d) => { log.push(`[pip] ${d.toString()}`); mainWindow?.webContents.send('setup:progress', d.toString()); });
-    pip.stderr.on('data', (d) => { log.push(`[pip:err] ${d.toString()}`); mainWindow?.webContents.send('setup:progress', d.toString()); });
-    pip.on('error', (err) => resolve({ ok: false, error: `pip3 not found or failed: ${err.message}`, log: log.join('') }));
-    pip.on('close', (code) => {
+    pip.stdout.on('data', (d) => sendProgress(d.toString()));
+    pip.stderr.on('data', (d) => sendProgress(d.toString()));
+    pip.on('error', (err) => resolve({ ok: false, error: `pip3 not in PATH or failed to spawn: ${err.message}`, log: log.join('') }));
+    pip.on('close', async (code) => {
       if (code !== 0) {
-        return resolve({ ok: false, error: `pip install failed (exit ${code})`, log: log.join('') });
+        return resolve({ ok: false, error: `pip install exit ${code} — is pip3 installed?`, log: log.join('') });
       }
-      // Now run mempalace init
-      const init = spawn('mempalace', ['init', palacePath], { stdio: ['ignore', 'pipe', 'pipe'] });
-      init.stdout.on('data', (d) => { log.push(`[init] ${d.toString()}`); mainWindow?.webContents.send('setup:progress', d.toString()); });
-      init.stderr.on('data', (d) => { log.push(`[init:err] ${d.toString()}`); mainWindow?.webContents.send('setup:progress', d.toString()); });
-      init.on('error', (err) => resolve({ ok: false, error: `mempalace init failed: ${err.message}`, log: log.join('') }));
+      sendProgress(`\n✓ pip install done\n`);
+
+      // Find mempalace binary now
+      const mpBin = await findMempalaceBinary();
+      if (!mpBin) {
+        return resolve({
+          ok: false,
+          error: `mempalace binary not found after install. Add ~/Library/Python/<version>/bin to PATH and restart, or check pip3 user-base.`,
+          log: log.join(''),
+        });
+      }
+      sendProgress(`▸ ${mpBin} init ${palacePath}\n`);
+
+      const init = spawn(mpBin, ['init', palacePath], { stdio: ['ignore', 'pipe', 'pipe'] });
+      init.stdout.on('data', (d) => sendProgress(d.toString()));
+      init.stderr.on('data', (d) => sendProgress(d.toString()));
+      init.on('error', (err) => resolve({ ok: false, error: `mempalace init spawn failed: ${err.message}`, log: log.join('') }));
       init.on('close', (icode) => {
         if (icode === 0) {
           config.updateConfig({ palacePath, setupComplete: true });
-          resolve({ ok: true, log: log.join('') });
+          sendProgress(`\n✓ mempalace init done — palace ready at ${palacePath}\n`);
+          resolve({ ok: true, log: log.join(''), mempalaceBin: mpBin });
         } else {
           resolve({ ok: false, error: `mempalace init exit ${icode}`, log: log.join('') });
         }
@@ -198,11 +256,19 @@ ipcMain.handle('claude:stream', async (event, streamId, message, openPanelTitles
     prompt = `[CANVAS CONTEXT — currently open panels: ${list}]\n\nIf any palace mutation in this turn affects data shown in one of these panels, regenerate that panel using its EXACT SAME H1 heading at the end of your reply.\n\n---\n\n${prompt}`;
   }
   const palaceCwd = getPalaceCwd();
+
+  // Inject saved Anthropic API key into env so SDK can authenticate
+  // (lets users log in via Settings → API Keys without needing terminal)
+  const apiKeys = config.readApiKeys();
+  const previousKey = process.env.ANTHROPIC_API_KEY;
+  if (apiKeys.anthropic) {
+    process.env.ANTHROPIC_API_KEY = apiKeys.anthropic;
+  }
+
   try {
     const { query } = await import('@anthropic-ai/claude-agent-sdk');
     const additional = [];
     if (!isDev) {
-      // In packaged app, include the app dir for resource access
       additional.push(app.getAppPath());
     }
     const q = query({
@@ -225,9 +291,18 @@ ipcMain.handle('claude:stream', async (event, streamId, message, openPanelTitles
     }
   } catch (err) {
     console.error('[claude:stream]', err);
-    sender.send('claude:error', streamId, String(err?.message || err));
+    let msg = String(err?.message || err);
+    // Friendlier error for missing auth
+    if (/api[_-]?key|authentication|unauthorized|401|403/i.test(msg)) {
+      msg = `Authentication failed. Either:\n  1. Open Settings (⚙️) → API Keys → paste your Anthropic API key, or\n  2. Run "claude login" in the terminal drawer (Cmd+\`) once.\n\nOriginal error: ${msg}`;
+    }
+    sender.send('claude:error', streamId, msg);
     activeQueries.delete(streamId);
     maybeNotify('error');
+  } finally {
+    // Restore env var to whatever it was before this call
+    if (previousKey === undefined) delete process.env.ANTHROPIC_API_KEY;
+    else process.env.ANTHROPIC_API_KEY = previousKey;
   }
 });
 

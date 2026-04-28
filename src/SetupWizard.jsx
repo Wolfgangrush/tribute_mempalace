@@ -114,6 +114,14 @@ export default function SetupWizard({ onDone }) {
                   <div className="wizard-card-desc">Use Claude chat without a palace. (Configure later in settings.)</div>
                 </div>
               </div>
+
+              <div className="wizard-auth-hint">
+                <strong>📌 You'll also need Claude authentication:</strong> after setup, open
+                {' '}<strong>Settings (⚙️) → API Keys</strong> and paste your
+                {' '}<code>ANTHROPIC_API_KEY</code> from <code>console.anthropic.com</code>,
+                {' '}<em>OR</em> open the terminal (<code>Cmd+`</code>) and run <code>claude login</code>.
+                Without one of these, chat won't work.
+              </div>
             </>
           )}
 

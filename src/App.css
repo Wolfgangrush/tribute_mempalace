@@ -979,6 +979,27 @@ button.btn-cancel:hover { background: #d56a5a; }
   white-space: pre-wrap;
   margin: 12px 0;
 }
+.wizard-auth-hint {
+  margin-top: 24px;
+  padding: 12px 16px;
+  background: #2a2a36;
+  border: 1px solid #3a3a48;
+  border-left: 3px solid #5a8aef;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #c8c8ca;
+}
+.wizard-auth-hint code {
+  background: #1a1a1f;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-family: 'SF Mono', ui-monospace, Menlo, monospace;
+  font-size: 11px;
+  color: #d8c8a8;
+}
+.wizard-auth-hint strong { color: #e8e8ea; }
+.wizard-auth-hint em { color: #aac8ff; font-style: normal; }
 
 /* ========================= APP SETTINGS ========================= */
 .settings-palace-row {
