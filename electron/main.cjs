@@ -420,12 +420,41 @@ ipcMain.handle('terminal:create', async (event, termId, cols, rows) => {
     if (apiKeys.ollama_host) envExtra.OLLAMA_HOST = apiKeys.ollama_host;
     if (apiKeys.openrouter) envExtra.OPENROUTER_API_KEY = apiKeys.openrouter;
 
-    const pty = spawnPty(shellBin, [], {
+    // Pre-seed PATH with common Apple Silicon + Intel + user-local locations
+    // so that even if .zshrc/.zprofile fail to load, brew/npm/python tools work.
+    const PATH_BOOTSTRAP = [
+      '/opt/homebrew/bin', '/opt/homebrew/sbin',
+      '/usr/local/bin', '/usr/local/sbin',
+      path.join(os.homedir(), '.local/bin'),
+      path.join(os.homedir(), '.cargo/bin'),
+      path.join(os.homedir(), 'Library/Python/3.14/bin'),
+      path.join(os.homedir(), 'Library/Python/3.13/bin'),
+      path.join(os.homedir(), 'Library/Python/3.12/bin'),
+      path.join(os.homedir(), 'Library/Python/3.11/bin'),
+      path.join(os.homedir(), 'Library/Python/3.10/bin'),
+      path.join(os.homedir(), 'Library/Python/3.9/bin'),
+      '/usr/bin', '/bin', '/usr/sbin', '/sbin',
+    ].filter((p) => fs.existsSync(p));
+    const seededPath = [...new Set([...PATH_BOOTSTRAP, ...(process.env.PATH || '').split(':').filter(Boolean)])].join(':');
+
+    // -i = interactive (sources .zshrc) + -l = login (sources .zprofile)
+    // This is what Terminal.app does and what gives users their full PATH.
+    const shellArgs = shellBin.endsWith('zsh') || shellBin.endsWith('bash') ? ['-il'] : [];
+
+    const pty = spawnPty(shellBin, shellArgs, {
       name: 'xterm-256color',
       cols: cols || 100,
       rows: rows || 30,
       cwd: getPalaceCwd(),
-      env: { ...process.env, TERM: 'xterm-256color', LANG: 'en_US.UTF-8', ...envExtra },
+      env: {
+        ...process.env,
+        PATH: seededPath,
+        TERM: 'xterm-256color',
+        LANG: 'en_US.UTF-8',
+        SHELL: shellBin,
+        HOME: os.homedir(),
+        ...envExtra,
+      },
     });
     terminals.set(termId, pty);
     pty.onData((data) => {
