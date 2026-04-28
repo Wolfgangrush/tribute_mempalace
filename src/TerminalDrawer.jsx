@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import { WebLinksAddon } from 'xterm-addon-web-links';
@@ -6,16 +6,34 @@ import 'xterm/css/xterm.css';
 
 let nextTermId = 1000;
 
+function shortenPath(p) {
+  if (!p) return '';
+  const home = (window.process?.env?.HOME) || '';
+  if (home && p.startsWith(home)) return '~' + p.slice(home.length);
+  // Strip user-specific prefix that we can detect heuristically
+  const userMatch = p.match(/^\/Users\/[^/]+(\/.*)?$/);
+  if (userMatch) return '~' + (userMatch[1] || '');
+  return p;
+}
+
 export default function TerminalDrawer({ visible }) {
   const containerRef = useRef(null);
   const termRef = useRef(null);
   const fitRef = useRef(null);
   const termIdRef = useRef(null);
   const initialized = useRef(false);
+  const [cwd, setCwd] = useState('');
 
   useEffect(() => {
     if (!visible || initialized.current || !containerRef.current) return;
     initialized.current = true;
+
+    // Pull current palace path from config so we display the right cwd label
+    if (window.mempalace?.config?.get) {
+      window.mempalace.config.get().then((cfg) => {
+        setCwd(shortenPath(cfg?.palacePath || ''));
+      });
+    }
 
     const term = new Terminal({
       fontFamily: '"SF Mono", ui-monospace, Menlo, monospace',
@@ -129,7 +147,7 @@ export default function TerminalDrawer({ visible }) {
     <div className={`terminal-drawer ${visible ? 'visible' : 'hidden'}`}>
       <div className="terminal-header">
         <span className="terminal-title">🖥️ Terminal</span>
-        <span className="terminal-cwd">{visible ? '~/Desktop/mempalace' : ''}</span>
+        <span className="terminal-cwd">{visible ? cwd : ''}</span>
         <span className="terminal-hint">Cmd+` to toggle</span>
       </div>
       <div ref={containerRef} className="terminal-container" />
