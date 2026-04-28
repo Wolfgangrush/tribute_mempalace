@@ -133,8 +133,36 @@ function findPythonUserBin() {
   });
 }
 
+function isCustomWrapper(binaryPath) {
+  // Detect user-customized bash wrappers that intercept mempalace args
+  try {
+    const buf = fs.readFileSync(binaryPath, 'utf8');
+    if (!buf || buf.length < 2) return false;
+    if (!buf.startsWith('#!')) return false;
+    const firstChunk = buf.slice(0, 4096);
+    // Real pip-installed binary is a Python script, not bash with custom logic
+    if (firstChunk.includes('MEMPALACE_HOME') || firstChunk.includes('single-command launcher')) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 async function findMempalaceBinary() {
-  // Try `which` first (in case pip global install or homebrew)
+  // Priority: python user-base (clean pip install) > known fallback paths > `which` (last resort)
+  // Reason: users may have custom bash wrappers in PATH that intercept args.
+  const candidates = [];
+
+  const userBin = await findPythonUserBin();
+  if (userBin) candidates.push(path.join(userBin, 'mempalace'));
+
+  candidates.push(
+    path.join(os.homedir(), '.local/bin/mempalace'),
+    '/opt/homebrew/bin/mempalace',
+    '/usr/local/bin/mempalace'
+  );
+
+  // `which` last
   const whichResult = await new Promise((resolve) => {
     const proc = spawn('which', ['mempalace'], { stdio: ['ignore', 'pipe', 'ignore'] });
     let out = '';
@@ -142,23 +170,13 @@ async function findMempalaceBinary() {
     proc.on('error', () => resolve(null));
     proc.on('close', (code) => resolve(code === 0 ? out.trim() : null));
   });
-  if (whichResult && fs.existsSync(whichResult)) return whichResult;
+  if (whichResult) candidates.push(whichResult);
 
-  // Try Python user-base/bin (where pip3 install --user puts it)
-  const userBin = await findPythonUserBin();
-  if (userBin) {
-    const candidate = path.join(userBin, 'mempalace');
-    if (fs.existsSync(candidate)) return candidate;
-  }
-
-  // Try common pyenv / homebrew paths
-  const fallbacks = [
-    path.join(os.homedir(), '.local/bin/mempalace'),
-    '/opt/homebrew/bin/mempalace',
-    '/usr/local/bin/mempalace',
-  ];
-  for (const f of fallbacks) {
-    if (fs.existsSync(f)) return f;
+  for (const c of candidates) {
+    if (!c) continue;
+    if (!fs.existsSync(c)) continue;
+    if (isCustomWrapper(c)) continue;  // skip user wrappers — they break arg parsing
+    return c;
   }
   return null;
 }
@@ -194,9 +212,9 @@ ipcMain.handle('config:install-mempalace', async (_event, palacePath) => {
           log: log.join(''),
         });
       }
-      sendProgress(`▸ ${mpBin} init ${palacePath}\n`);
+      sendProgress(`▸ ${mpBin} init ${palacePath} --yes\n`);
 
-      const init = spawn(mpBin, ['init', palacePath], { stdio: ['ignore', 'pipe', 'pipe'] });
+      const init = spawn(mpBin, ['init', palacePath, '--yes'], { stdio: ['ignore', 'pipe', 'pipe'] });
       init.stdout.on('data', (d) => sendProgress(d.toString()));
       init.stderr.on('data', (d) => sendProgress(d.toString()));
       init.on('error', (err) => resolve({ ok: false, error: `mempalace init spawn failed: ${err.message}`, log: log.join('') }));
