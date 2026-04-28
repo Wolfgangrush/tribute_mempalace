@@ -432,8 +432,20 @@ ipcMain.handle('claude:send', async (_event, message) => {
   });
 });
 
-/* ================== M2 Agent SDK streaming ================== */
-const activeQueries = new Map();
+/* ================== Streaming chat via CLI subprocess (NEW DEFAULT) ==================
+ * The Claude Agent SDK runs inside our unsigned Electron app and can't access
+ * Pro/Max OAuth credentials in the macOS Keychain (those are protected by
+ * Anthropic's code-signing identity, which we don't have). The signed `claude`
+ * CLI binary CAN access them — so we shell out to it with --output-format
+ * stream-json and forward its events to the renderer. The format is identical
+ * to what the SDK emits (system/init, assistant, stream_event, result, etc),
+ * so handleSdkMessage in the renderer needs no changes.
+ *
+ * Works for BOTH auth modes:
+ *   - Pro/Max OAuth (claude login)         → CLI reads Keychain
+ *   - ANTHROPIC_API_KEY                    → CLI reads env var
+ */
+const activeProcesses = new Map();
 
 ipcMain.handle('claude:stream', async (event, streamId, message, openPanelTitles) => {
   const sender = event.sender;
@@ -446,85 +458,119 @@ ipcMain.handle('claude:stream', async (event, streamId, message, openPanelTitles
   }
 
   const palaceCwd = getPalaceCwd();
+  if (!fs.existsSync(palaceCwd) || !fs.statSync(palaceCwd).isDirectory()) {
+    sender.send('claude:error', streamId, `Palace path is not a directory: ${palaceCwd}\n\nOpen Settings (⚙️) and choose a valid folder.`);
+    maybeNotify('error');
+    return;
+  }
+
+  const claudeBin = getClaudeBinPath();
+  if (!claudeBin || claudeBin === 'claude' && !findBinary('claude')) {
+    sender.send('claude:error', streamId, 'Claude CLI not found. Install via:\n  brew install claude\n  OR\n  npm install -g @anthropic-ai/claude-code\n\nThen run `claude login` in the terminal drawer (Cmd+`).');
+    maybeNotify('error');
+    return;
+  }
+
+  // Build env: enriched PATH + saved API keys (so CLI can use either OAuth or key)
   const apiKeys = config.readApiKeys();
+  const envExtra = {};
+  if (apiKeys.anthropic) envExtra.ANTHROPIC_API_KEY = apiKeys.anthropic;
+  if (apiKeys.openai) envExtra.OPENAI_API_KEY = apiKeys.openai;
+  if (apiKeys.google) envExtra.GOOGLE_API_KEY = apiKeys.google;
 
-  // Build env locally — DON'T mutate global process.env (race-safe for concurrent calls)
-  const callEnv = envWithEnrichedPath();
-  if (apiKeys.anthropic) callEnv.ANTHROPIC_API_KEY = apiKeys.anthropic;
+  // Spawn signed CLI with stream-json output + permissive permissions
+  const proc = spawn(claudeBin, [
+    '--print',
+    '--output-format', 'stream-json',
+    '--include-partial-messages',
+    '--verbose',
+    '--permission-mode', 'bypassPermissions',
+    '--append-system-prompt', SYSTEM_PROMPT_APPEND,
+  ], {
+    cwd: palaceCwd,
+    env: envWithEnrichedPath(envExtra),
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
 
-  // Temporarily set process.env for the SDK call (SDK reads from process.env at import time;
-  // we restore in finally). Lock prevents concurrent corruption.
-  await sdkEnvLock.acquire();
-  const originalAnthropicKey = process.env.ANTHROPIC_API_KEY;
-  if (apiKeys.anthropic) process.env.ANTHROPIC_API_KEY = apiKeys.anthropic;
+  activeProcesses.set(streamId, proc);
 
-  try {
-    const { query } = await import('@anthropic-ai/claude-agent-sdk');
+  // Buffer for stdout in case JSON spans partial reads
+  let buf = '';
+  let stderrBuf = '';
 
-    // additionalDirectories must be REAL directories on disk. In production builds
-    // app.getAppPath() returns the asar archive path (a virtual file), which makes
-    // the SDK throw ENOTDIR when it tries to chdir there. Only add real dirs.
-    const additional = [];
-
-    // Validate palace cwd exists and is a directory; otherwise SDK will ENOTDIR
-    if (!fs.existsSync(palaceCwd) || !fs.statSync(palaceCwd).isDirectory()) {
-      throw new Error(`Palace path is not a directory: ${palaceCwd}. Open Settings (⚙️) and choose a valid folder.`);
+  proc.stdout.on('data', (chunk) => {
+    buf += chunk.toString();
+    let nlIdx;
+    while ((nlIdx = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, nlIdx).trim();
+      buf = buf.slice(nlIdx + 1);
+      if (!line) continue;
+      try {
+        const msg = JSON.parse(line);
+        // Convert CLI stream_event format to SDKAssistantMessage-equivalent
+        // for handleSdkMessage's `type === 'partial_assistant'` branch.
+        if (msg.type === 'stream_event' && msg.event) {
+          const ev = msg.event;
+          if (ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta') {
+            sender.send('claude:message', streamId, {
+              type: 'partial_assistant',
+              message: { content: [{ type: 'text', text: ev.delta.text || '' }] },
+            });
+            continue;
+          }
+          // Other stream_event types — skip in renderer (handled by `assistant` type)
+          continue;
+        }
+        sender.send('claude:message', streamId, msg);
+      } catch (err) {
+        // not valid JSON — treat as plain progress text
+        if (line.length < 500) {
+          console.warn('[claude:stream] non-JSON line:', line.slice(0, 200));
+        }
+      }
     }
+  });
 
-    const q = query({
-      prompt,
-      options: {
-        cwd: palaceCwd,
-        additionalDirectories: additional,
-        permissionMode: 'bypassPermissions',
-        maxTurns: 50,
-        systemPrompt: { type: 'preset', preset: 'claude_code', append: SYSTEM_PROMPT_APPEND },
-      },
-    });
-    activeQueries.set(streamId, q);
-    try {
-      for await (const msg of q) sender.send('claude:message', streamId, msg);
+  proc.stderr.on('data', (chunk) => {
+    stderrBuf += chunk.toString();
+  });
+
+  proc.on('error', (err) => {
+    sender.send('claude:error', streamId, `CLI spawn failed: ${err.message}`);
+    activeProcesses.delete(streamId);
+    maybeNotify('error');
+  });
+
+  proc.on('close', (code) => {
+    activeProcesses.delete(streamId);
+    if (code === 0) {
       sender.send('claude:done', streamId);
       maybeNotify('done');
-    } finally {
-      activeQueries.delete(streamId);
+    } else {
+      const errMsg = stderrBuf.trim() || `claude CLI exited with code ${code}`;
+      let userMsg = errMsg;
+      if (/api[_-]?key|authentication|unauthorized|401|403|not (authenticated|logged[\s-]?in)/i.test(errMsg)) {
+        userMsg = `Authentication failed. Either:\n  1. Open Settings (⚙️) → Claude Authentication → Login with Claude (subscription), or\n  2. Paste an Anthropic API key under "API key (separate billing)".\n\nOriginal error: ${errMsg}`;
+      }
+      sender.send('claude:error', streamId, userMsg);
+      maybeNotify('error');
     }
+  });
+
+  // Send the prompt via stdin and close
+  try {
+    proc.stdin.write(prompt);
+    proc.stdin.end();
   } catch (err) {
-    console.error('[claude:stream]', err);
-    let msg = String(err?.message || err);
-    if (/api[_-]?key|authentication|unauthorized|401|403/i.test(msg)) {
-      msg = `Authentication failed. Either:\n  1. Open Settings (⚙️) → Claude Authentication → Login with Claude (subscription), or\n  2. Paste an Anthropic API key under "API key (separate billing)".\n\nOriginal error: ${msg}`;
-    }
-    sender.send('claude:error', streamId, msg);
-    activeQueries.delete(streamId);
-    maybeNotify('error');
-  } finally {
-    if (originalAnthropicKey === undefined) delete process.env.ANTHROPIC_API_KEY;
-    else process.env.ANTHROPIC_API_KEY = originalAnthropicKey;
-    sdkEnvLock.release();
+    console.error('[claude:stream] stdin write failed:', err);
   }
 });
 
-// Lightweight async lock to serialize SDK env mutations
-const sdkEnvLock = (() => {
-  let queue = Promise.resolve();
-  return {
-    acquire() {
-      let release;
-      const next = new Promise((r) => { release = r; });
-      const prev = queue;
-      queue = next;
-      this._release = release;
-      return prev;
-    },
-    release() { if (this._release) { const r = this._release; this._release = null; r(); } },
-  };
-})();
-
 ipcMain.handle('claude:cancel', async (_event, streamId) => {
-  const q = activeQueries.get(streamId);
-  if (q && typeof q.interrupt === 'function') {
-    try { await q.interrupt(); } catch (err) { console.error('[cancel]', err); }
+  const proc = activeProcesses.get(streamId);
+  if (proc) {
+    try { proc.kill('SIGTERM'); } catch (err) { console.error('[cancel]', err); }
+    setTimeout(() => { try { proc.kill('SIGKILL'); } catch {} }, 3000);
   }
 });
 
