@@ -153,10 +153,13 @@ export default function SetupWizard({ onDone }) {
               </div>
 
               <p className="modal-hint" style={{ marginTop: 18 }}>
-                I'll run: <code>pip3 install --user mempalace</code> then <code>mempalace init {chosenPath}</code>
+                I'll try (in order): <code>pipx install mempalace</code> → fallback{' '}
+                <code>pip3 install --user --break-system-packages mempalace</code> → then{' '}
+                <code>mempalace init {chosenPath} --yes</code>
               </p>
               <p className="modal-hint">
-                Requires Python 3 + pip3 in PATH. If pip3 is missing, install Python from <code>python.org</code> first.
+                Requires Python 3 + (pipx OR pip3). If you're on Homebrew Python, install pipx first:{' '}
+                <code>brew install pipx</code>.
               </p>
 
               <div className="modal-actions" style={{ marginTop: 24 }}>

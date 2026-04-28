@@ -239,29 +239,71 @@ ipcMain.handle('config:install-mempalace', async (_event, palacePath) => {
     mainWindow?.webContents.send('setup:progress', line);
   };
 
-  // Step 1: pip install
-  sendProgress(`▸ pip3 install --user mempalace\n`);
-  const pip = spawn('pip3', ['install', '--user', 'mempalace'], {
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: envWithEnrichedPath(),
-  });
-  activeInstallProc = pip;
-  pip.stdout.on('data', (d) => sendProgress(d.toString()));
-  pip.stderr.on('data', (d) => sendProgress(d.toString()));
+  // Step 1: install mempalace. Try in this order:
+  //   1. pipx install (cleanest — isolates in venv, recommended on PEP-668 systems)
+  //   2. pip3 install --user --break-system-packages (forces past PEP-668)
+  //   3. pip3 install --user (legacy, only works on non-PEP-668 systems)
 
-  const pipResult = await runWithTimeout(pip, PIP_INSTALL_TIMEOUT_MS, 'pip install');
-  activeInstallProc = null;
+  async function tryInstallCmd(cmd, args, label) {
+    sendProgress(`\n▸ ${cmd} ${args.join(' ')}\n`);
+    const proc = spawn(cmd, args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: envWithEnrichedPath(),
+    });
+    activeInstallProc = proc;
+    proc.stdout.on('data', (d) => sendProgress(d.toString()));
+    proc.stderr.on('data', (d) => sendProgress(d.toString()));
+    const result = await runWithTimeout(proc, PIP_INSTALL_TIMEOUT_MS, label);
+    activeInstallProc = null;
+    return result;
+  }
 
-  if (pipResult.error) {
-    return { ok: false, error: `pip3 not in PATH or failed to spawn: ${pipResult.error}`, log: log.join('') };
+  // Attempt 1: pipx (only if available)
+  let installSucceeded = false;
+  if (findBinary('pipx')) {
+    const pipxResult = await tryInstallCmd('pipx', ['install', 'mempalace'], 'pipx install');
+    if (!pipxResult.error && !pipxResult.timedOut && pipxResult.code === 0) {
+      installSucceeded = true;
+      sendProgress(`\n✓ pipx install done\n`);
+    } else if (pipxResult.timedOut) {
+      return { ok: false, error: `pipx install timed out after ${PIP_INSTALL_TIMEOUT_MS / 1000} sec`, log: log.join('') };
+    } else {
+      sendProgress(`\n⚠️ pipx install failed — falling back to pip3\n`);
+    }
+  } else {
+    sendProgress(`\n(pipx not found — skipping; trying pip3)\n`);
   }
-  if (pipResult.timedOut) {
-    return { ok: false, error: `pip install timed out after ${PIP_INSTALL_TIMEOUT_MS / 1000} sec — check network or try manual: pip3 install --user mempalace`, log: log.join('') };
+
+  // Attempt 2: pip3 with --break-system-packages
+  if (!installSucceeded) {
+    const pipResult = await tryInstallCmd('pip3', ['install', '--user', '--break-system-packages', 'mempalace'], 'pip3 install');
+    if (pipResult.error) {
+      return { ok: false, error: `pip3 not in PATH: ${pipResult.error}\n\nFix: install Python 3 from python.org OR \`brew install pipx\`.`, log: log.join('') };
+    }
+    if (pipResult.timedOut) {
+      return { ok: false, error: `pip install timed out after ${PIP_INSTALL_TIMEOUT_MS / 1000} sec — check network`, log: log.join('') };
+    }
+    if (pipResult.code === 0) {
+      installSucceeded = true;
+      sendProgress(`\n✓ pip3 install done\n`);
+    } else {
+      // Final attempt: legacy pip3 install --user (in case --break-system-packages flag isn't recognized)
+      const legacyResult = await tryInstallCmd('pip3', ['install', '--user', 'mempalace'], 'pip3 install (legacy)');
+      if (!legacyResult.error && !legacyResult.timedOut && legacyResult.code === 0) {
+        installSucceeded = true;
+        sendProgress(`\n✓ pip3 install done (legacy mode)\n`);
+      } else {
+        return {
+          ok: false,
+          error: `Install failed. Tried pipx (not found), pip3 with --break-system-packages (exit ${pipResult.code}), and legacy pip3 (exit ${legacyResult.code}).\n\nManual fix: open Terminal and run one of:\n  • brew install pipx && pipx install mempalace\n  • pip3 install --user --break-system-packages mempalace`,
+          log: log.join(''),
+        };
+      }
+    }
   }
-  if (pipResult.code !== 0) {
-    return { ok: false, error: `pip install exited ${pipResult.code} — is pip3 installed?`, log: log.join('') };
+  if (!installSucceeded) {
+    return { ok: false, error: 'Install did not complete', log: log.join('') };
   }
-  sendProgress(`\n✓ pip install done\n`);
 
   // Step 2: find binary
   const mpBin = await findMempalaceBinary();
