@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1a2440"/>
+      <stop offset="100%" stop-color="#0a0d1a"/>
+    </linearGradient>
+    <linearGradient id="active-glow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#9ac0ff"/>
+      <stop offset="50%" stop-color="#7aa8ff"/>
+      <stop offset="100%" stop-color="#5a8aef"/>
+    </linearGradient>
+    <radialGradient id="memory-orb" cx="50%" cy="50%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="1"/>
+      <stop offset="50%" stop-color="#ffffff" stop-opacity="0.85"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="soft-glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="14" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- App Icon: Memory Palace floor plan -->
+  <!-- 4 rooms (2x2 grid) representing wings; one is "active" (glowing with a memory orb) -->
+
+  <!-- Background — rounded square (macOS Big Sur+ style) -->
+  <rect width="1024" height="1024" rx="232" ry="232" fill="url(#bg-grad)"/>
+
+  <!-- Outer palace frame (subtle) -->
+  <rect x="172" y="172" width="680" height="680" rx="56" ry="56"
+        fill="none" stroke="#3a4878" stroke-width="4" opacity="0.4"/>
+
+  <!-- 2x2 grid of rooms — gap = 16px, inner padding = 32px from frame -->
+  <!-- Top-left -->
+  <rect x="220" y="220" width="280" height="280" rx="32" ry="32" fill="#1f2942"/>
+  <!-- Top-right -->
+  <rect x="524" y="220" width="280" height="280" rx="32" ry="32" fill="#2a3a5e"/>
+  <!-- Bottom-left -->
+  <rect x="220" y="524" width="280" height="280" rx="32" ry="32" fill="#2a3a5e"/>
+
+  <!-- Bottom-right ROOM — the ACTIVE one, glowing -->
+  <rect x="524" y="524" width="280" height="280" rx="32" ry="32"
+        fill="url(#active-glow)" filter="url(#soft-glow)"/>
+
+  <!-- Memory orb inside the active room (the "thought" being held) -->
+  <circle cx="664" cy="664" r="60" fill="url(#memory-orb)" opacity="0.92"/>
+  <circle cx="664" cy="664" r="22" fill="#ffffff"/>
+
+  <!-- Subtle "doorway" connectors between rooms (suggesting traversal) -->
+  <rect x="494" y="350" width="36" height="20" rx="6" ry="6" fill="#3a4878" opacity="0.6"/>
+  <rect x="494" y="654" width="36" height="20" rx="6" ry="6" fill="#3a4878" opacity="0.6"/>
+  <rect x="350" y="494" width="20" height="36" rx="6" ry="6" fill="#3a4878" opacity="0.6"/>
+  <rect x="654" y="494" width="20" height="36" rx="6" ry="6" fill="#3a4878" opacity="0.6"/>
+</svg>
