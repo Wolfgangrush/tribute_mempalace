@@ -390,8 +390,16 @@ ipcMain.handle('claude:stream', async (event, streamId, message, openPanelTitles
 
   try {
     const { query } = await import('@anthropic-ai/claude-agent-sdk');
+
+    // additionalDirectories must be REAL directories on disk. In production builds
+    // app.getAppPath() returns the asar archive path (a virtual file), which makes
+    // the SDK throw ENOTDIR when it tries to chdir there. Only add real dirs.
     const additional = [];
-    if (!isDev) additional.push(app.getAppPath());
+
+    // Validate palace cwd exists and is a directory; otherwise SDK will ENOTDIR
+    if (!fs.existsSync(palaceCwd) || !fs.statSync(palaceCwd).isDirectory()) {
+      throw new Error(`Palace path is not a directory: ${palaceCwd}. Open Settings (⚙️) and choose a valid folder.`);
+    }
 
     const q = query({
       prompt,
