@@ -316,20 +316,24 @@ ipcMain.handle('config:open-folder', async (_event, p) => {
 
 /* ================== Claude CLI detection ================== */
 
+async function isClaudeLoggedIn() {
+  // Claude Code stores OAuth creds in macOS Keychain under "Claude Code-credentials".
+  // Check existence (NOT contents — we don't want to actually read the secret).
+  return new Promise((resolve) => {
+    const proc = spawn('security', ['find-generic-password', '-s', 'Claude Code-credentials'], {
+      stdio: ['ignore', 'ignore', 'ignore'],
+      env: envWithEnrichedPath(),
+    });
+    proc.on('error', () => resolve(false));
+    proc.on('close', (code) => resolve(code === 0));
+  });
+}
+
 ipcMain.handle('claude:cli-status', async () => {
-  // Use enriched PATH search instead of `which` (which uses limited Electron PATH)
   const claudeBin = findBinary('claude');
   if (!claudeBin) return { installed: false, path: null, loggedIn: false };
-  const credsPaths = [
-    path.join(os.homedir(), '.claude/credentials.json'),
-    path.join(os.homedir(), '.config/claude/credentials.json'),
-    path.join(os.homedir(), 'Library/Application Support/Claude/credentials.json'),
-  ];
-  return {
-    installed: true,
-    path: claudeBin,
-    loggedIn: credsPaths.some((p) => fs.existsSync(p)),
-  };
+  const loggedIn = await isClaudeLoggedIn();
+  return { installed: true, path: claudeBin, loggedIn };
 });
 
 /* ================== API keys ================== */
