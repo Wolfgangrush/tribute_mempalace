@@ -62,17 +62,28 @@ The MemPalace Python package gives you a powerful CLI memory system. **MemPalace
 
 ### Option A — Pre-built `.app` (recommended for end users)
 
-**This release is unsigned** (we don't have an Apple Developer account). After download:
+📥 **[Download the latest release →](https://github.com/Wolfgangrush/tribute_mempalace/releases/latest)**
+
+Latest: [`MemPalace-v0.7-arm64.zip`](https://github.com/Wolfgangrush/tribute_mempalace/releases/download/v0.7/MemPalace-v0.7-arm64.zip) · 164 MB · Apple Silicon (M1/M2/M3/M4)
+
+**Install in 30 seconds:**
 
 ```bash
-# Drag MemPalace.app to /Applications (or any folder)
-# Then clear macOS quarantine flag:
+# 1. Unzip + drag to /Applications
+
+# 2. Clear macOS quarantine (required for unsigned apps):
 xattr -dr com.apple.quarantine /Applications/MemPalace.app
+
+# 3. Launch
+open /Applications/MemPalace.app
+# OR Spotlight (Cmd+Space → "MemPalace")
 ```
 
-(Without this step, macOS Gatekeeper will block first launch.)
+> ⚠️ **The release is unsigned** — we don't have an Apple Developer account ($99/year). The quarantine command is a one-time bypass; macOS Gatekeeper will warn once and then trust the app permanently.
+>
+> **Apple Silicon only** for now. No Intel/Linux/Windows builds yet.
 
-Open from Spotlight (`Cmd+Space` → "MemPalace") or double-click in Finder. First launch shows the **welcome wizard**.
+First launch shows the **welcome wizard** — see [Quick start](#-quick-start-5-minutes).
 
 ### Option B — Build from source (recommended for developers)
 
